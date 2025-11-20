@@ -1,0 +1,5 @@
+{
+  "name": "GeoTrack Visualizer",
+  "description": "A professional GPS track visualizer capable of rendering GPX, KML, and CSV data on an interactive map. Features file drag-and-drop, direct text input, and intelligent parsing of various tracking formats.",
+  "requestFramePermissions": []
+}
