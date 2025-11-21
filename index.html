@@ -12,13 +12,24 @@
       crossorigin=""
     />
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+      html, body, #root {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
       body {
         font-family: 'Inter', sans-serif;
+        overflow: hidden;
       }
       .leaflet-container {
         background: #f8fafc;
+        height: 100%;
+        width: 100%;
       }
     </style>
   <script type="importmap">
@@ -31,7 +42,9 @@
     "leaflet": "https://aistudiocdn.com/leaflet@^1.9.4",
     "papaparse": "https://aistudiocdn.com/papaparse@^5.5.3",
     "react-leaflet": "https://aistudiocdn.com/react-leaflet@^5.0.0",
-    "@tmcw/togeojson": "https://aistudiocdn.com/@tmcw/togeojson@^7.1.2"
+    "@tmcw/togeojson": "https://aistudiocdn.com/@tmcw/togeojson@^7.1.2",
+    "leaflet.markercluster": "https://esm.sh/leaflet.markercluster@1.5.3?external=leaflet",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
   }
 }
 </script>

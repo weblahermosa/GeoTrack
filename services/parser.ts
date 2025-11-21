@@ -2,6 +2,21 @@ import { GeoPoint, ParseResult, TrackData } from '../types';
 import Papa from 'papaparse';
 import { gpx, kml } from '@tmcw/togeojson';
 
+const deg2rad = (deg: number) => deg * (Math.PI/180);
+
+// Exported helper to calculate distance between two points in km
+export const getDistance = (p1: GeoPoint, p2: GeoPoint): number => {
+  const R = 6371; // Radius of the earth in km
+  const dLat = deg2rad(p2.lat - p1.lat);
+  const dLon = deg2rad(p2.lon - p1.lon);
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(deg2rad(p1.lat)) * Math.cos(deg2rad(p2.lat)) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2); 
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  return R * c; 
+};
+
 // Helper to calculate bounds
 const calculateBounds = (points: GeoPoint[]): [[number, number], [number, number]] => {
   if (points.length === 0) return [[0, 0], [0, 0]];
@@ -23,23 +38,10 @@ const calculateDistance = (points: GeoPoint[]): number => {
   if (points.length < 2) return 0;
   let total = 0;
   for (let i = 0; i < points.length - 1; i++) {
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const R = 6371; // Radius of the earth in km
-    const dLat = deg2rad(p2.lat - p1.lat);
-    const dLon = deg2rad(p2.lon - p1.lon);
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(deg2rad(p1.lat)) * Math.cos(deg2rad(p2.lat)) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2); 
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-    const d = R * c; // Distance in km
-    total += d;
+    total += getDistance(points[i], points[i+1]);
   }
   return total;
 };
-
-const deg2rad = (deg: number) => deg * (Math.PI/180);
 
 export const parseData = async (content: string, fileName: string = 'Untitled Track'): Promise<ParseResult> => {
   try {
@@ -73,17 +75,21 @@ const parseGPX = (content: string, fileName: string): ParseResult => {
             points.push({
               lon: coord[0],
               lat: coord[1],
-              ele: coord[2] || 0
+              ele: coord[2] || 0,
+              time: feature.properties?.coordTimes?.[points.length] || undefined
             });
           });
         } else if (feature.geometry.type === 'MultiLineString') {
+           let flatIndex = 0;
            feature.geometry.coordinates.forEach((line: number[][]) => {
             line.forEach((coord: number[]) => {
                  points.push({
                     lon: coord[0],
                     lat: coord[1],
-                    ele: coord[2] || 0
+                    ele: coord[2] || 0,
+                    time: feature.properties?.coordTimes?.[flatIndex] || undefined
                  });
+                 flatIndex++;
             });
            });
         }
@@ -120,7 +126,8 @@ const parseKML = (content: string, fileName: string): ParseResult => {
             points.push({
               lon: coord[0],
               lat: coord[1],
-              ele: coord[2] || 0
+              ele: coord[2] || 0,
+              time: feature.properties?.coordTimes ? feature.properties.coordTimes[points.length] : undefined
             });
           });
         } else if (feature.geometry.type === 'MultiLineString') {
@@ -154,8 +161,6 @@ const parseKML = (content: string, fileName: string): ParseResult => {
 };
 
 const parseCSV = (content: string, fileName: string): ParseResult => {
-  // The specific CSV format provided usually has metadata headers before the actual table.
-  // We need to find the line that defines columns (Latitude, Longitude, etc.)
   const lines = content.split('\n');
   let headerLineIndex = -1;
   
@@ -168,11 +173,9 @@ const parseCSV = (content: string, fileName: string): ParseResult => {
   }
 
   if (headerLineIndex === -1) {
-      // Fallback: Try parsing assuming first row is header if we didn't find explicit keywords
       headerLineIndex = 0;
   }
 
-  // Re-join only the data part
   const csvData = lines.slice(headerLineIndex).join('\n');
 
   const result = Papa.parse(csvData, {
@@ -188,7 +191,6 @@ const parseCSV = (content: string, fileName: string): ParseResult => {
   const points: GeoPoint[] = [];
 
   result.data.forEach((row: any) => {
-    // Normalize keys to handle case sensitivity or whitespace
     const normalizedRow: any = {};
     Object.keys(row).forEach(k => {
         normalizedRow[k.trim().toLowerCase()] = row[k];
@@ -206,7 +208,6 @@ const parseCSV = (content: string, fileName: string): ParseResult => {
 
   if (points.length === 0) return { success: false, error: "No valid Latitude/Longitude columns found in CSV" };
 
-  // Try to extract name from metadata if present (lines before header)
   let finalName = fileName;
   if (headerLineIndex > 0) {
      const metaLines = lines.slice(0, headerLineIndex);
