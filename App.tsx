@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import MapViewer from './components/MapViewer';
 import Sidebar from './components/Sidebar';
-import { TrackData, AnnotationMarker, Waypoint } from './types';
+import { TrackData, AnnotationMarker, Waypoint, SimulationStatus } from './types';
 
 const App: React.FC = () => {
   const [trackData, setTrackData] = useState<TrackData | null>(null);
   const [annotations, setAnnotations] = useState<AnnotationMarker[]>([]);
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
-  const [simulationPoint, setSimulationPoint] = useState<{lat: number, lon: number, bearing: number} | null>(null);
+  const [simulationStatus, setSimulationStatus] = useState<SimulationStatus | null>(null);
   const [autoFollow, setAutoFollow] = useState(false);
 
   const handleAddWaypoint = (waypoint: Waypoint) => {
@@ -25,7 +25,7 @@ const App: React.FC = () => {
         track={trackData} 
         annotations={annotations} 
         waypoints={waypoints}
-        simulationPoint={simulationPoint}
+        simulationStatus={simulationStatus}
         autoFollow={autoFollow}
       />
       
@@ -36,7 +36,7 @@ const App: React.FC = () => {
         onAddWaypoint={handleAddWaypoint}
         waypoints={waypoints}
         onRemoveWaypoint={handleRemoveWaypoint}
-        onSimulationUpdate={setSimulationPoint}
+        onSimulationUpdate={setSimulationStatus}
         onAutoFollowChange={setAutoFollow}
         isAutoFollow={autoFollow}
       />

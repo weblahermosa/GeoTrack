@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { MapContainer, TileLayer, Polyline, useMap, Marker, Popup, ZoomControl } from 'react-leaflet';
-import { TrackData, GeoPoint, AnnotationMarker, Waypoint } from '../types';
+import { TrackData, GeoPoint, AnnotationMarker, Waypoint, SimulationStatus } from '../types';
 import { getDistance } from '../services/parser';
 import L from 'leaflet';
 import 'leaflet.markercluster';
@@ -35,44 +35,96 @@ const endIcon = L.divIcon({
     popupAnchor: [0, -32]
 });
 
-interface SimulationPoint {
-    lat: number;
-    lon: number;
-    bearing: number;
-}
-
 interface MapViewerProps {
   track: TrackData | null;
   annotations: AnnotationMarker[];
   waypoints: Waypoint[];
-  simulationPoint?: SimulationPoint | null;
+  simulationStatus?: SimulationStatus | null;
   autoFollow?: boolean;
 }
 
-const CarMarker = ({ point }: { point: SimulationPoint }) => {
+const CarMarker = ({ status }: { status: SimulationStatus }) => {
     // Create icon dynamically to update rotation
     const carIcon = L.divIcon({
         className: 'custom-car-icon',
-        html: `<div class="w-10 h-10 bg-blue-600 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-white" style="transform: rotate(${point.bearing}deg); transition: transform 0.1s linear;"><i class="fa-solid fa-car-side text-base"></i></div>`,
+        html: `<div class="w-10 h-10 bg-blue-600 rounded-full border-2 border-white shadow-xl flex items-center justify-center text-white" style="transform: rotate(${status.point.bearing}deg); transition: transform 0.1s linear;"><i class="fa-solid fa-car-side text-base"></i></div>`,
         iconSize: [40, 40],
         iconAnchor: [20, 20],
         popupAnchor: [0, -20]
     });
 
     return (
-        <Marker position={[point.lat, point.lon]} icon={carIcon} zIndexOffset={1000}>
+        <Marker position={[status.point.lat, status.point.lon]} icon={carIcon} zIndexOffset={1000}>
             <Popup>
-                <div className="text-center">
-                    <div className="font-bold text-blue-600">Simulating Journey</div>
-                    <div className="text-xs text-slate-500">Bearing: {Math.round(point.bearing)}°</div>
+                <div className="text-center min-w-[140px]">
+                    <div className="font-bold text-blue-600 mb-1">Simulating</div>
+                    <div className="text-xs text-slate-600 font-mono mb-1">
+                        {status.time ? status.time.toLocaleTimeString() : 'N/A'}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                         {status.time ? status.time.toLocaleDateString() : ''}
+                    </div>
                 </div>
             </Popup>
         </Marker>
     );
 };
 
+// Helper for Directional Arrows
+const calculateBearing = (startLat: number, startLng: number, destLat: number, destLng: number) => {
+    const toRad = (deg: number) => deg * Math.PI / 180;
+    const toDeg = (rad: number) => rad * 180 / Math.PI;
+    
+    const startLatRad = toRad(startLat);
+    const startLngRad = toRad(startLng);
+    const destLatRad = toRad(destLat);
+    const destLngRad = toRad(destLng);
+
+    const y = Math.sin(destLngRad - startLngRad) * Math.cos(destLatRad);
+    const x = Math.cos(startLatRad) * Math.sin(destLatRad) -
+            Math.sin(startLatRad) * Math.cos(destLatRad) * Math.cos(destLngRad - startLngRad);
+    let brng = Math.atan2(y, x);
+    brng = toDeg(brng);
+    return (brng + 360) % 360;
+};
+
+const DirectionalArrowsLayer = ({ points }: { points: GeoPoint[] }) => {
+    if (!points || points.length < 2) return null;
+
+    // Logic to select a subset of points for arrows to avoid clutter
+    // Aim for roughly 30-40 arrows max depending on track length
+    const totalPoints = points.length;
+    const step = Math.max(2, Math.floor(totalPoints / 40));
+    
+    const arrowMarkers = [];
+
+    for (let i = 0; i < totalPoints - 1; i += step) {
+        const p1 = points[i];
+        // Look ahead slightly for better bearing smoothing if points are very close
+        const nextIdx = Math.min(i + Math.max(1, Math.floor(step/2)), totalPoints - 1);
+        const p2 = points[nextIdx];
+        
+        if (p1.lat === p2.lat && p1.lon === p2.lon) continue;
+
+        const bearing = calculateBearing(p1.lat, p1.lon, p2.lat, p2.lon);
+        
+        const arrowIcon = L.divIcon({
+            className: 'bg-transparent border-none',
+            html: `<div style="transform: rotate(${bearing}deg);" class="text-white/90 drop-shadow-md flex items-center justify-center"><i class="fa-solid fa-chevron-up text-xs font-bold" style="-webkit-text-stroke: 1px rgba(0,0,0,0.3);"></i></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+
+        arrowMarkers.push(
+            <Marker key={`arrow-${i}`} position={[p1.lat, p1.lon]} icon={arrowIcon} interactive={false} />
+        );
+    }
+
+    return <>{arrowMarkers}</>;
+};
+
 // Component to handle auto-following the car
-const AutoFollowController = ({ point, active }: { point: SimulationPoint | null | undefined, active: boolean }) => {
+const AutoFollowController = ({ point, active }: { point: {lat: number, lon: number} | null | undefined, active: boolean }) => {
     const map = useMap();
     
     useEffect(() => {
@@ -304,9 +356,21 @@ const LocateControl = () => {
     );
 };
 
-const MapViewer: React.FC<MapViewerProps> = ({ track, annotations, waypoints, simulationPoint, autoFollow = false }) => {
+const MapViewer: React.FC<MapViewerProps> = ({ track, annotations, waypoints, simulationStatus, autoFollow = false }) => {
   const defaultCenter: [number, number] = [51.505, -0.09];
   const defaultZoom = 3;
+
+  // Calculate traveled path for polyline based on simulation status
+  const traveledPositions: [number, number][] = useMemo(() => {
+    if (!track || !simulationStatus) return [];
+    
+    // Get all points up to the last passed index
+    const path = track.points.slice(0, simulationStatus.lastIndex + 1).map(p => [p.lat, p.lon] as [number, number]);
+    // Add the current interpolated position of the car
+    path.push([simulationStatus.point.lat, simulationStatus.point.lon]);
+    
+    return path;
+  }, [track, simulationStatus]);
 
   return (
     <div className="h-full w-full z-0 relative">
@@ -330,11 +394,21 @@ const MapViewer: React.FC<MapViewerProps> = ({ track, annotations, waypoints, si
         
         {track && (
           <>
+            {/* Base Track - Blue */}
             <Polyline 
                 positions={track.points.map(p => [p.lat, p.lon])} 
-                pathOptions={{ color: '#3b82f6', weight: 3, opacity: 0.6 }} 
+                pathOptions={{ color: '#3b82f6', weight: 4, opacity: 0.6 }} 
             />
             
+            {/* Traveled Path - Amber/Orange */}
+            {simulationStatus && traveledPositions.length > 0 && (
+                <Polyline 
+                    positions={traveledPositions} 
+                    pathOptions={{ color: '#f59e0b', weight: 4, opacity: 0.9 }} 
+                />
+            )}
+            
+            <DirectionalArrowsLayer points={track.points} />
             <TrackPointsLayer points={track.points} />
             <StartEndMarkers points={track.points} />
             <AnnotationsLayer markers={annotations} />
@@ -342,10 +416,10 @@ const MapViewer: React.FC<MapViewerProps> = ({ track, annotations, waypoints, si
           </>
         )}
 
-        {simulationPoint && (
+        {simulationStatus && (
             <>
-                <CarMarker point={simulationPoint} />
-                <AutoFollowController point={simulationPoint} active={autoFollow || false} />
+                <CarMarker status={simulationStatus} />
+                <AutoFollowController point={simulationStatus.point} active={autoFollow || false} />
             </>
         )}
       </MapContainer>

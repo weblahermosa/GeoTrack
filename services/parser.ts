@@ -4,7 +4,7 @@ import { gpx, kml } from '@tmcw/togeojson';
 
 const deg2rad = (deg: number) => deg * (Math.PI/180);
 
-// Exported helper to calculate distance between two points in km
+// Exported helper to calculate distance between two points
 export const getDistance = (p1: GeoPoint, p2: GeoPoint): number => {
   const R = 6371; // Radius of the earth in km
   const dLat = deg2rad(p2.lat - p1.lat);
@@ -14,11 +14,11 @@ export const getDistance = (p1: GeoPoint, p2: GeoPoint): number => {
     Math.cos(deg2rad(p1.lat)) * Math.cos(deg2rad(p2.lat)) * 
     Math.sin(dLon/2) * Math.sin(dLon/2); 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-  return R * c; 
+  return R * c; // Distance in km
 };
 
 // Helper to calculate bounds
-const calculateBounds = (points: GeoPoint[]): [[number, number], [number, number]] => {
+export const calculateBounds = (points: GeoPoint[]): [[number, number], [number, number]] => {
   if (points.length === 0) return [[0, 0], [0, 0]];
   
   let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
@@ -34,7 +34,7 @@ const calculateBounds = (points: GeoPoint[]): [[number, number], [number, number
 };
 
 // Helper to calculate approximate distance
-const calculateDistance = (points: GeoPoint[]): number => {
+export const calculateDistance = (points: GeoPoint[]): number => {
   if (points.length < 2) return 0;
   let total = 0;
   for (let i = 0; i < points.length - 1; i++) {
@@ -161,6 +161,8 @@ const parseKML = (content: string, fileName: string): ParseResult => {
 };
 
 const parseCSV = (content: string, fileName: string): ParseResult => {
+  // The specific CSV format provided usually has metadata headers before the actual table.
+  // We need to find the line that defines columns (Latitude, Longitude, etc.)
   const lines = content.split('\n');
   let headerLineIndex = -1;
   
@@ -173,9 +175,11 @@ const parseCSV = (content: string, fileName: string): ParseResult => {
   }
 
   if (headerLineIndex === -1) {
+      // Fallback: Try parsing assuming first row is header if we didn't find explicit keywords
       headerLineIndex = 0;
   }
 
+  // Re-join only the data part
   const csvData = lines.slice(headerLineIndex).join('\n');
 
   const result = Papa.parse(csvData, {
@@ -191,6 +195,7 @@ const parseCSV = (content: string, fileName: string): ParseResult => {
   const points: GeoPoint[] = [];
 
   result.data.forEach((row: any) => {
+    // Normalize keys to handle case sensitivity or whitespace
     const normalizedRow: any = {};
     Object.keys(row).forEach(k => {
         normalizedRow[k.trim().toLowerCase()] = row[k];
@@ -208,6 +213,7 @@ const parseCSV = (content: string, fileName: string): ParseResult => {
 
   if (points.length === 0) return { success: false, error: "No valid Latitude/Longitude columns found in CSV" };
 
+  // Try to extract name from metadata if present (lines before header)
   let finalName = fileName;
   if (headerLineIndex > 0) {
      const metaLines = lines.slice(0, headerLineIndex);
@@ -227,4 +233,31 @@ const parseCSV = (content: string, fileName: string): ParseResult => {
       distanceKm: calculateDistance(points)
     }
   };
+};
+
+export const exportToGPX = (track: TrackData): string => {
+  const name = track.name || 'Exported Track';
+  const header = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="GeoTrack Visualizer" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>${name}</name>
+  </metadata>
+  <trk>
+    <name>${name}</name>
+    <trkseg>`;
+
+  const points = track.points.map(p => {
+    let pt = `      <trkpt lat="${p.lat}" lon="${p.lon}">`;
+    if (p.ele !== undefined) pt += `\n        <ele>${p.ele}</ele>`;
+    if (p.time) pt += `\n        <time>${new Date(p.time).toISOString()}</time>`;
+    pt += `\n      </trkpt>`;
+    return pt;
+  }).join('\n');
+
+  const footer = `
+    </trkseg>
+  </trk>
+</gpx>`;
+
+  return header + '\n' + points + footer;
 };

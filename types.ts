@@ -38,3 +38,13 @@ export interface Waypoint {
   description?: string;
   uri?: string;
 }
+
+export interface SimulationStatus {
+  point: {
+    lat: number;
+    lon: number;
+    bearing: number;
+  };
+  time?: Date | null;
+  lastIndex: number;
+}
